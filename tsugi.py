@@ -15,7 +15,9 @@ import trivialstore as trivialstore
 TSUGI_CONNECTION = None
 TSUGI_PREFIX = ''
 
-''' This is the data structure that drives Tsugi's core operations
+''' 
+TSUGI_DB_TO_ROW_FIELDS is the data structure that drives Tsugi's core operations
+
 (1) extract_post - parsing post data to internal values
 (2) load_all - retrieving data from the core tables
 (3) adjust_data - make sure that post data is inserted / updated into DB
@@ -24,7 +26,7 @@ Each row works as follows:
 - the first row is the name of the table (sans prefix)
 - the second row is the primary key (if any) followed by the foreign keys (if any)
 - The rest of the rows are
-  [name in db, name in lti object, name(s) from post data]
+  [name in db, name in lti object (if different)]
 
 Database columns that end in _key are the "logical key" for the row, but these are
 run through sha256 and stored in the _sha256 columns which is marked in the
@@ -32,7 +34,12 @@ DB as the actual logical key for the row.  This approach is taken to allow
 the _key values be text and unindexed and apply the index to the _sha256
 column instead.
 
+If you look at the other languages, there is a lot of cut/pasted/tweaked straight
+line code with subtle changes in each version.   This is a table driven approach
+that is more complex but less likely to have cut/paste errors.  Also I use lists
+to maintain order and to make this easier to port to new languages.
 '''
+
 TSUGI_DB_TO_ROW_FIELDS = [
         ['lti_key',
             ['key_id'],
@@ -42,7 +49,7 @@ TSUGI_DB_TO_ROW_FIELDS = [
             ['settings_url', 'key_settings_url'],
         ],
         ['lti_nonce',
-            'nonce'
+            'nonce'  # No primary key - jsut a logical key
         ],
         ['lti_context',
             ['context_id', 'key_id'],
@@ -97,6 +104,23 @@ TSUGI_DB_TO_ROW_FIELDS = [
         ]
     ]
 
+# TODO: This needs to be pulled out somewhere
+# This also needs to let connections go after
+# a while - it is far too simple
+def get_connection() :
+    global TSUGI_CONNECTION
+    if TSUGI_CONNECTION is not None : return TSUGI_CONNECTION
+
+    TSUGI_CONNECTION = pymysql.connect(host='localhost',
+                             user='ltiuser',
+                             port=8889,
+                             password='ltipassword',
+                             db='tsugi',
+                             charset='utf8mb4',
+                             cursorclass=pymysql.cursors.DictCursor)
+
+    return TSUGI_CONNECTION
+
 def web2py(request, response, session):
 
     for tc in range(len(TSUGI_DB_TO_ROW_FIELDS)) :
@@ -139,20 +163,6 @@ def web2py(request, response, session):
 
     actions = adjust_data(row, my_post)
     print "Adjusted", actions
-
-def get_connection() :
-    global TSUGI_CONNECTION
-    if TSUGI_CONNECTION is not None : return TSUGI_CONNECTION
-
-    TSUGI_CONNECTION = pymysql.connect(host='localhost',
-                             user='ltiuser',
-                             port=8889,
-                             password='ltipassword',
-                             db='tsugi',
-                             charset='utf8mb4',
-                             cursorclass=pymysql.cursors.DictCursor)
-
-    return TSUGI_CONNECTION
 
 def extract_post(post) :
     fixed = dict()
