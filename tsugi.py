@@ -466,20 +466,22 @@ def do_update(core_object, row, post, actions) :
             connection.commit()
 
 
+# The payoff for table driven code - take a look at 
+# https://github.com/tsugiproject/tsugi-php/blob/master/src/Core/LTIX.php#L753
+# for the PHP version of adjustData() :)
 def adjust_data(row, post) :
     global TSUGI_DB_TO_ROW_FIELDS
 
     connection = get_connection()
     actions = list()
 
-    do_insert('context', row, post, actions)
-    do_insert('user', row, post, actions)
-    do_insert('link', row, post, actions)
-    do_insert('membership', row, post, actions)
-    do_insert('result', row, post, actions)
-    do_insert('service', row, post, actions)
+    core_lti = ['context', 'user', 'link', 'membership', 'result', 'service']
 
-    do_update('user', row, post, actions)
+    for core in core_lti:
+        do_insert(core, row, post, actions)
+
+    for core in core_lti:
+        do_update(core, row, post, actions)
 
     return actions
 
