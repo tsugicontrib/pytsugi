@@ -2,6 +2,7 @@
 import re
 import pymysql
 import hashlib
+import urllib
 
 # https://github.com/idan/oauthlib/blob/master/oauthlib/oauth1/rfc5849/endpoints/base.py
 # https://github.com/idan/oauthlib/blob/master/oauthlib/oauth1/rfc5849/endpoints/signature_only.py
@@ -10,6 +11,7 @@ import hashlib
 
 import oauth as oauth
 import trivialstore as trivialstore
+from tsugiclasses import *
 
 
 TSUGI_CONNECTION = None
@@ -86,7 +88,7 @@ TSUGI_DB_TO_ROW_FIELDS = [
             'role_override'   # Make sure to think this one through
         ],
         ['lti_result',
-            ['result_id', 'link_id', 'user_id'],
+            ['result_id', 'link_id', 'user_id', 'service_id'],
             'grade',
             'result_url',
             'sourcedid'
@@ -100,7 +102,7 @@ TSUGI_DB_TO_ROW_FIELDS = [
         ['lti_service',
             ['service_id' , 'key_id'],
             'service_sha256',
-            ['service_key', 'service']
+            'service_key'
         ]
     ]
 
@@ -119,10 +121,19 @@ def get_connection() :
                              charset='utf8mb4',
                              cursorclass=pymysql.cursors.DictCursor)
 
+    print "Opening connection..."
     return TSUGI_CONNECTION
+
+def close_connection() :
+    global TSUGI_CONNECTION
+    if TSUGI_CONNECTION is None : return
+    print "Closing connection..."
+    TSUGI_CONNECTION.close()
+    TSUGI_CONNECTION = None
 
 def web2py(request, response, session):
 
+    launch = TsugiLaunch()
     for tc in range(len(TSUGI_DB_TO_ROW_FIELDS)) :
         table = TSUGI_DB_TO_ROW_FIELDS[tc]
         for fc in range(len(table)) :
@@ -131,10 +142,12 @@ def web2py(request, response, session):
             field = table[fc]
             TSUGI_DB_TO_ROW_FIELDS[tc][fc] = [field,field]
 
-    print TSUGI_DB_TO_ROW_FIELDS
     my_post = extract_post(request.post_vars)
     print "Extracted POST", my_post
-    row = load_all(my_post)
+    try:
+        row = load_all(my_post)
+    finally:
+        close_connection()
     print "Loaded Row", row
     key = row['key_key']
     secret = row['secret']
@@ -155,14 +168,37 @@ def web2py(request, response, session):
     except oauth.OAuthError as oae:
         print "OAuth Failed"
         print oae.mymessage
-        response.headers['X-Tsugi-Error-Detail'] = oae.mymessage
-        return
+        retval = oae.mymessage
+        response.headers['X-Tsugi-Error-Detail'] = retval
+        launch.detail = retval
+        launch.message = retval
+        pos = retval.find(' Expected signature base string: ')
+        if pos > 0 : launch.message = retval[:pos]
+
+        url = request.post_vars.get('launch_presentation_return_url')
+        if url is not None:
+            parms = { 'lti_errorlog' : launch.detail,
+                'lti_errormsg' : launch.message } 
+            if '?' in url : url += '&' 
+            else : url += '?'
+            url += urllib.urlencode(parms)
+            print url
+            launch.redirecturl = url
+
+        close_connection()
+        return launch
 
     print '----- Success ----'
     print verify
 
-    actions = adjust_data(row, my_post)
+    try:
+        actions = adjust_data(row, my_post)
+    finally:
+        close_connection()
     print "Adjusted", actions
+    launch.valid = True
+    close_connection()
+    return launch
 
 def extract_post(post) :
     fixed = dict()
@@ -196,7 +232,7 @@ def extract_post(post) :
     ret['context_key'] = context_key
 
     # LTI 1.x settings and Outcomes
-    ret['service'] = fixed.get('lis_outcome_service_url', None)
+    ret['service_key'] = fixed.get('lis_outcome_service_url', None)
     ret['sourcedid'] = fixed.get('lis_result_sourcedid', None)
 
     # LTI 2.x settings and Outcomes
@@ -312,8 +348,8 @@ def load_all(post_data) :
 
     # The parameters
     service = None
-    if 'service' in post_data :
-        service = hashlib.sha256(post_data['service']).hexdigest()
+    if 'service_key' in post_data and post_data['service_key'] is not None:
+        service = hashlib.sha256(post_data['service_key']).hexdigest()
 
     parms = {
         'key': hashlib.sha256(post_data['key']).hexdigest(),
@@ -450,6 +486,7 @@ def do_update(core_object, row, post, actions) :
     for field in table[2:] :
         if '_sha256' in field[0] : continue   # Don't update logical key
         # print "Check",field[1],row[field[1]],post.get(field[1])
+        if post.get(field[1]) is None : continue
         if row[field[1]] == post.get(field[1]) : continue
         sql = adjust_sql('UPDATE {$p}'+table_name+ ' SET '+field[0]+'=:value WHERE '+id_column+' = :id')
 
@@ -462,7 +499,7 @@ def do_update(core_object, row, post, actions) :
             # Read a single record
             cursor.execute(sql, parms)
             row[field[1]] = post.get(field[1])
-            actions.append("=== Updated "+core_object+" "+field[1]+"="+post.get(field[1])+" id="+str(row[id_column]))
+            actions.append("=== Updated "+core_object+" "+field[1]+"="+str(post.get(field[1]))+" id="+str(row[id_column]))
             connection.commit()
 
 
@@ -475,7 +512,7 @@ def adjust_data(row, post) :
     connection = get_connection()
     actions = list()
 
-    core_lti = ['context', 'user', 'link', 'membership', 'result', 'service']
+    core_lti = ['context', 'user', 'link', 'membership', 'service', 'result']
 
     for core in core_lti:
         do_insert(core, row, post, actions)
