@@ -41,7 +41,17 @@ def web2py(request, response, session):
 
     print "POST Vars"
     print request.post_vars
+
     launch = TsugiLaunch('TBD')
+
+    if 'lti_message_type' in request.post_vars and 'oauth_nonce' in request.post_vars :
+        pass
+    else :
+        if '_TSUGI_ROW' in session : 
+            launch.load(session['_TSUGI_ROW'])
+            launch.success = True
+            return launch
+        return None
 
     my_post = extract_post(request.post_vars)
     print "Extracted POST", my_post
@@ -73,6 +83,7 @@ def web2py(request, response, session):
 
     launch.load(ltirow)
     launch.valid = True
+    session['_TSUGI_ROW'] = ltirow
     close_connection()
     return launch
 
