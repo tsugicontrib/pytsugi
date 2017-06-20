@@ -43,23 +43,40 @@ def web2py(request, response, session):
     print request.post_vars
     launch = TsugiLaunch()
 
-
     my_post = extract_post(request.post_vars)
     print "Extracted POST", my_post
     try:
-        row = load_all(my_post)
+        ltirow = load_all(my_post)
     finally:
         close_connection()
-    print "Loaded Row", row
-    key = row['key_key']
-    secret = row['secret']
+
+    print "Loaded Row", ltirow
+    key = ltirow['key_key']
+    secret = ltirow['secret']
 
     url = '%s://%s%s' % (request.env.wsgi_url_scheme, request.env.http_host,
                request.env.request_uri)
 
     print "Key, Secret, URL", key,secret, url
 
-    oauth_request = oauth.OAuthRequest.from_request('POST', url, None, request.post_vars)
+    # Check secret...
+    verify_signature(request.post_vars, url, key, secret, launch)
+    if launch.message : 
+        response.headers['X-Tsugi-Error-Detail'] = launch.detail
+        return launch
+
+    try:
+        actions = adjust_data(ltirow, my_post)
+    finally:
+        close_connection()
+    print "Adjusted", actions
+
+    launch.valid = True
+    close_connection()
+    return launch
+
+def verify_signature(post, url, key, secret, launch) :
+    oauth_request = oauth.OAuthRequest.from_request('POST', url, None, post)
     ts = trivialstore.TrivialDataStore()
     trivialstore.secret = secret
     server = oauth.OAuthServer(ts)
@@ -71,13 +88,12 @@ def web2py(request, response, session):
         print "OAuth Failed"
         print oae.mymessage
         retval = oae.mymessage
-        response.headers['X-Tsugi-Error-Detail'] = retval
         launch.detail = retval
         launch.message = retval
         pos = retval.find(' Expected signature base string: ')
         if pos > 0 : launch.message = retval[:pos]
 
-        url = request.post_vars.get('launch_presentation_return_url')
+        url = post.get('launch_presentation_return_url')
         if url is not None:
             parms = { 'lti_errorlog' : launch.detail,
                 'lti_errormsg' : launch.message }
@@ -87,23 +103,8 @@ def web2py(request, response, session):
             print url
             launch.redirecturl = url
 
-        close_connection()
-        return launch
-
-    print '----- Success ----'
-    print verify
-
-    try:
-        actions = adjust_data(row, my_post)
-    finally:
-        close_connection()
-    print "Adjusted", actions
-    launch.valid = True
-    close_connection()
-    return launch
-
 def extract_post(post) :
-    '''Map the POST data into our internal metarow format where all the
+    '''Map the POST data into our internal ltirow format where all the
     data has unique keys.'''
 
     # Remove "custom_" from the beginning of fields
@@ -281,10 +282,10 @@ def lti_sha256(value) :
     if value is None : return value
     return hashlib.sha256(value).hexdigest()
 
-def do_insert(core_object, row, post, actions) :
+def do_insert(core_object, ltirow, post, actions) :
     '''Look through the post data and check if there is new data
     not yet in the database, and if there is new data insert it
-    and update the metarow object.'''
+    and update the ltirow object.'''
 
     global TSUGI_DB_TO_ROW_FIELDS
     table_name = 'lti_'+core_object
@@ -312,7 +313,7 @@ def do_insert(core_object, row, post, actions) :
         if column[0].endswith('_sha256') : external = True
 
     # We already have a primary key - all good
-    if row.get(id_column) is not None : return
+    if ltirow.get(id_column) is not None : return
 
     # We need a logical key and do not have one...
     if external and post.get(key_column) is None:
@@ -333,10 +334,10 @@ def do_insert(core_object, row, post, actions) :
     for fk in table[1][1:] :
         columns += ', '+fk
         subs += ', :'+fk
-        if row.get(fk) is None :
+        if ltirow.get(fk) is None :
             print 'Cannot insert', core_object,'without FK', fk
             return
-        parms[fk] = row[fk]
+        parms[fk] = ltirow[fk]
 
     # Add data
     for field in table[2:] :
@@ -356,20 +357,20 @@ def do_insert(core_object, row, post, actions) :
     with connection.cursor() as cursor:
         # Read a single record
         cursor.execute(sql, parms)
-        row[id_column] = cursor.lastrowid
+        ltirow[id_column] = cursor.lastrowid
         # [0] is table_name, [1] is primary key
         for field in table[2:] :
             if field[0] == sha_column :
-                row[field[1]] = lti_sha256(post[key_column])
+                ltirow[field[1]] = lti_sha256(post[key_column])
             else :
-                row[field[1]] = post.get(field[1])
-        actions.append("=== Inserted "+core_object+" id="+str(row[id_column]))
+                ltirow[field[1]] = post.get(field[1])
+        actions.append("=== Inserted "+core_object+" id="+str(ltirow[id_column]))
         connection.commit()
 
-def do_update(core_object, row, post, actions) :
+def do_update(core_object, ltirow, post, actions) :
     '''Look at the post data, and if there is a mismatch between
-    row (the data from the database) and the post data, update the
-    database and the row data.'''
+    ltirow (the data from the database) and the post data, update the
+    database and the ltirow data.'''
 
     global TSUGI_DB_TO_ROW_FIELDS
     table_name = 'lti_'+core_object
@@ -390,19 +391,19 @@ def do_update(core_object, row, post, actions) :
         return
 
     # We should already have a primary key
-    if row.get(id_column) is None : return
+    if ltirow.get(id_column) is None : return
 
     connection = get_connection()
 
     # Add data
     for field in table[2:] :
         if '_sha256' in field[0] : continue   # Don't update logical key
-        # print "Check",field[1],row[field[1]],post.get(field[1])
+        # print "Check",field[1],ltirow[field[1]],post.get(field[1])
         if post.get(field[1]) is None : continue
-        if row[field[1]] == post.get(field[1]) : continue
+        if ltirow[field[1]] == post.get(field[1]) : continue
         sql = adjust_sql('UPDATE {$p}'+table_name+ ' SET '+field[0]+'=:value WHERE '+id_column+' = :id')
 
-        parms = {'value': post.get(field[1]), 'id': row.get(id_column)}
+        parms = {'value': post.get(field[1]), 'id': ltirow.get(id_column)}
 
         # print sql
         # print parms
@@ -410,18 +411,18 @@ def do_update(core_object, row, post, actions) :
         with connection.cursor() as cursor:
             # Read a single record
             cursor.execute(sql, parms)
-            row[field[1]] = post.get(field[1])
-            actions.append("=== Updated "+core_object+" "+field[1]+"="+str(post.get(field[1]))+" id="+str(row[id_column]))
+            ltirow[field[1]] = post.get(field[1])
+            actions.append("=== Updated "+core_object+" "+field[1]+"="+str(post.get(field[1]))+" id="+str(ltirow[id_column]))
             connection.commit()
 
 
 # The payoff for table driven code - take a look at
 # https://github.com/tsugiproject/tsugi-php/blob/master/src/Core/LTIX.php#L753
 # for the PHP version of adjustData() :)
-def adjust_data(row, post) :
+def adjust_data(ltirow, post) :
     '''Make sure that any data from the post is inserted / updated
-    in the database and also copied to the "meta-row".  If new records are
-    inserted, their PK's are placed in row as well.
+    in the database and also copied to the "ltirow".  If new records are
+    inserted, their PK's are placed in ltirow as well.
     '''
 
     global TSUGI_DB_TO_ROW_FIELDS
@@ -432,10 +433,10 @@ def adjust_data(row, post) :
     core_lti = ['context', 'user', 'link', 'membership', 'service', 'result']
 
     for core in core_lti:
-        do_insert(core, row, post, actions)
+        do_insert(core, ltirow, post, actions)
 
     for core in core_lti:
-        do_update(core, row, post, actions)
+        do_update(core, ltirow, post, actions)
 
     return actions
 
