@@ -3,108 +3,14 @@ import re
 import pymysql
 import hashlib
 import urllib
-
-# https://github.com/idan/oauthlib/blob/master/oauthlib/oauth1/rfc5849/endpoints/base.py
-# https://github.com/idan/oauthlib/blob/master/oauthlib/oauth1/rfc5849/endpoints/signature_only.py
-# from oauthlib.oauth1 import SignatureOnlyEndpoint
-# import oauthlib.oauth1.rfc5849.signature as signature
-
-import oauth as oauth
 import trivialstore as trivialstore
 from tsugiclasses import *
 
+# Hey Leah Culver, 2007 called and thanked you for your OAuth code
+import oauth as oauth
 
 TSUGI_CONNECTION = None
 TSUGI_PREFIX = ''
-
-'''
-TSUGI_DB_TO_ROW_FIELDS is the data structure that drives Tsugi's core operations
-
-(1) extract_post - parsing post data to internal values
-(2) load_all - retrieving data from the core tables
-(3) adjust_data - make sure that post data is inserted / updated into DB
-
-Each row works as follows:
-- the first row is the name of the table (sans prefix)
-- the second row is the primary key (if any) followed by the foreign keys (if any)
-- The rest of the rows are
-  [name in db, name in lti object (if different), name(s) from the post data]
-
-Database columns that end in _key are the "logical key" for the row, but these are
-run through sha256 and stored in the _sha256 columns which is marked in the
-DB as the actual logical key for the row.  This approach is taken to allow
-the _key values be text and unindexed and apply the index to the _sha256
-column instead.
-
-Also, there is no need ot add 'custom_' to the post data names, this is
-automatically handled in extract_post()
-
-If you look at the other languages, there is a lot of cut/pasted/tweaked straight
-line code with subtle changes in each version.   This is a table driven approach
-that is more complex but less likely to have cut/paste errors.  Also I use lists
-to maintain order and to make this easier to port to new languages.
-'''
-
-TSUGI_DB_TO_ROW_FIELDS = [
-        ['lti_key', # No sha256 because we don't insert key rows
-            ['key_id'],
-            ['key_key','key_key','oauth_consumer_key'],
-            'secret' ,
-            'new_secret',
-            ['settings_url', 'key_settings_url'],
-        ],
-        ['lti_context',
-            ['context_id', 'key_id'],
-            ['context_key', 'context_key', ['context_id', 'courseoffering_sourcedid']],
-            'context_sha256',
-            ['title', 'context_title', 'context_title'],
-            ['settings_url', 'context_settings_url'],
-            'ext_memberships_id',   # LTI 1.x Extension
-            'ext_memberships_url',  # LTI 1.x Extension
-            'lineitems_url',        # LTI 2.x Custom
-            'memberships_url'       # LTI 2.x Custom
-        ],
-        ['lti_link',
-            ['link_id', 'context_id'],
-            ['link_key','link_key', 'resource_link_id'],
-            'link_sha256',
-            ['path', 'link_path'],
-            ['title', 'link_title', 'resource_link_title'],
-            ['settings', 'link_settings'],
-            ['settings_url', 'link_settings_url']
-        ],
-        ['lti_user',
-            ['user_id', 'key_id'],
-            ['user_key', 'user_key', ['user_id', 'person_sourcedid']],
-            'user_sha256',
-            ['subscribe', 'user_subscribe'],
-            ['displayname', 'user_displayname', ['lis_person_name_full', 'person_name_full'] ],
-            ['email', 'user_email', ['lis_person_contact_email_primary', 'person_email_primary'] ],
-            ['image', 'user_image'],
-        ],
-        ['lti_membership',
-            ['membership_id', 'user_id', 'context_id'],
-            'role',
-            'role_override'   # Make sure to think this one through
-        ],
-        ['lti_result',
-            ['result_id', 'link_id', 'user_id', 'service_id'],
-            'grade',
-            'result_url',
-            ['sourcedid', 'sourcedid', 'lis_result_sourcedid'],
-        ],
-        ['profile',
-            ['profile_id', 'key_id'],
-            ['displayname', 'profile_displayname'],
-            ['email', 'profile_email'],
-            ['subscribe', 'profile_subscribe']
-        ],
-        ['lti_service',
-            ['service_id' , 'key_id'],
-            'service_sha256',
-            ['service_key', 'service_key', 'lis_outcome_service_url']
-        ]
-    ]
 
 # TODO: This needs to be pulled out somewhere
 # This also needs to let connections go after
@@ -121,13 +27,13 @@ def get_connection() :
                              charset='utf8mb4',
                              cursorclass=pymysql.cursors.DictCursor)
 
-    print "Opening connection..."
+    # print "Opening connection..."
     return TSUGI_CONNECTION
 
 def close_connection() :
     global TSUGI_CONNECTION
     if TSUGI_CONNECTION is None : return
-    print "Closing connection..."
+    # print "Closing connection..."
     TSUGI_CONNECTION.close()
     TSUGI_CONNECTION = None
 
@@ -136,45 +42,12 @@ def web2py(request, response, session):
     print "POST Vars"
     print request.post_vars
     launch = TsugiLaunch()
-    for tc in range(len(TSUGI_DB_TO_ROW_FIELDS)) :
-        table = TSUGI_DB_TO_ROW_FIELDS[tc]
-        # [name in db, name in lti object (if different), name(s) from the post data]
-        for fc in range(len(table)) :
-            if fc == 0 : continue;  # skip table name
-            if fc == 1 : continue;  # skip table name
-            if type(table[fc]) == type([]) and len(table[fc]) == 3 : continue
 
-            # For two, duplicate the second as last
-            if type(table[fc]) == type([]) and len(table[fc]) == 2 :
-                TSUGI_DB_TO_ROW_FIELDS[tc][fc].append(table[fc][1])
-                continue
 
-            # One field - goes across all three
-            field = table[fc]
-            TSUGI_DB_TO_ROW_FIELDS[tc][fc] = [field,field,field]
-
-    # TODO: Unit test this table driven extract_post() for a while
     my_post = extract_post(request.post_vars)
-    my_post2 = extract_post2(request.post_vars)
-    for key in my_post :
-        if my_post[key] is None : continue
-        if key not in my_post2 :
-            print "Erorr: In my_post but not in my_post2",key,'=',my_post[key]
-            continue
-        if my_post[key] != my_post2[key] :
-            print 'Erorr: Value mismatch',key,'my_post',my_post[key],'my_post2',my_post2[key]
-    for key in my_post2 :
-        if my_post2[key] is None : continue
-        if key not in my_post :
-            print "Erorr: In my_post2 but not in my_post",key
-            continue
-        if my_post[key] != my_post2[key] :
-            print 'Erorr: XValue mismatch',key,'my_post',my_post[key],'my_post2',my_post2[key]
-    # TODO: Remove this unit test and keep only extract_post2 (and rename it)
-
-    print "Extracted POST", my_post2
+    print "Extracted POST", my_post
     try:
-        row = load_all(my_post2)
+        row = load_all(my_post)
     finally:
         close_connection()
     print "Loaded Row", row
@@ -229,7 +102,11 @@ def web2py(request, response, session):
     close_connection()
     return launch
 
-def extract_post2(post) :
+def extract_post(post) :
+    '''Map the POST data into our internal metarow format where all the
+    data has unique keys.'''
+
+    # Remove "custom_" from the beginning of fields
     fixed = dict()
     for (k,v) in post.items():
         if k.startswith('custom_') :
@@ -258,45 +135,7 @@ def extract_post2(post) :
                 if post_field in fixed :
                     ret[column[1]] = fixed[post_field]
 
-    # TODO: Remove all this as it is handled by the table driven code above
-    # ret['key_key'] = fixed.get('oauth_consumer_key', None)
-
-    # link_key = fixed.get('resource_link_id', None)
-    # link_key = fixed.get('custom_resource_link_id', link_key)
-    # ret['link_key'] = link_key
-
-    # user_key = fixed.get('person_sourcedid', None)
-    # user_key = fixed.get('user_id', user_key)
-    # user_key = fixed.get('custom_user_id', user_key)
-    # ret['user_key'] = user_key
-
-    # context_key = fixed.get('courseoffering_sourcedid', None)
-    # context_key = fixed.get('context_id', context_key)
-    # context_key = fixed.get('custom_context_id', context_key)
-    # ret['context_key'] = context_key
-
-    # LTI 1.x settings and Outcomes
-    # ret['service_key'] = fixed.get('lis_outcome_service_url', None)
-    # ret['sourcedid'] = fixed.get('lis_result_sourcedid', None)
-
-    # LTI 2.x settings and Outcomes
-    # ret['result_url'] = fixed.get('custom_result_url', None)
-    # ret['link_settings_url'] = fixed.get('custom_link_settings_url', None)
-    # ret['context_settings_url'] = fixed.get('custom_context_settings_url', None)
-
-    # LTI 2.x Services
-    # ret['ext_memberships_id'] = fixed.get('ext_memberships_id', None)
-    # ret['ext_memberships_url'] = fixed.get('ext_memberships_url', None)
-    # ret['lineitems_url'] = fixed.get('lineitems_url', None)
-    # ret['memberships_url'] = fixed.get('memberships_url', None)
-
-    # ret['context_title'] = fixed.get('context_title', None)
-    # ret['link_title'] = fixed.get('resource_link_title', None)
-
-    # Getting email from LTI 1.x and LTI 2.x
-    # ret['user_email'] = fixed.get('lis_person_contact_email_primary', None)
-    # ret['user_email'] = fixed.get('custom_person_email_primary', ret['user_email'])
-
+    # Fields not represented in the table
     ret['nonce'] = fixed.get('oauth_nonce', None)
 
     # Dispayname business logic from LTI 2.x
@@ -338,101 +177,10 @@ def extract_post2(post) :
 
     return ret
 
-def extract_post(post) :
-    fixed = dict()
-    for (k,v) in post.items():
-        if k.startswith('custom_') :
-            nk = k[7:]
-            if v.startswith('$') :
-                sv = v[1:].lower().replace('.','_')
-                if sv == nk : continue
-            if nk not in fixed : fixed[nk] = v
-        fixed[k] = v
-
-    #print(fixed)
-    ret = dict()
-
-    ret['key_key'] = fixed.get('oauth_consumer_key', None)
-    ret['nonce'] = fixed.get('oauth_nonce', None)
-
-    link_key = fixed.get('resource_link_id', None)
-    link_key = fixed.get('custom_resource_link_id', link_key)
-    ret['link_key'] = link_key
-
-    user_key = fixed.get('person_sourcedid', None)
-    user_key = fixed.get('user_id', user_key)
-    user_key = fixed.get('custom_user_id', user_key)
-    ret['user_key'] = user_key
-
-    context_key = fixed.get('courseoffering_sourcedid', None)
-    context_key = fixed.get('context_id', context_key)
-    context_key = fixed.get('custom_context_id', context_key)
-    ret['context_key'] = context_key
-
-    # LTI 1.x settings and Outcomes
-    ret['service_key'] = fixed.get('lis_outcome_service_url', None)
-    ret['sourcedid'] = fixed.get('lis_result_sourcedid', None)
-
-    # LTI 2.x settings and Outcomes
-    ret['result_url'] = fixed.get('custom_result_url', None)
-    ret['link_settings_url'] = fixed.get('custom_link_settings_url', None)
-    ret['context_settings_url'] = fixed.get('custom_context_settings_url', None)
-
-    # LTI 2.x Services
-    ret['ext_memberships_id'] = fixed.get('ext_memberships_id', None)
-    ret['ext_memberships_url'] = fixed.get('ext_memberships_url', None)
-    ret['lineitems_url'] = fixed.get('lineitems_url', None)
-    ret['memberships_url'] = fixed.get('memberships_url', None)
-
-    ret['context_title'] = fixed.get('context_title', None)
-    ret['link_title'] = fixed.get('resource_link_title', None)
-
-    # Getting email from LTI 1.x and LTI 2.x
-    ret['user_email'] = fixed.get('lis_person_contact_email_primary', None)
-    ret['user_email'] = fixed.get('custom_person_email_primary', ret['user_email'])
-    ret['user_image'] = fixed.get('user_image', None)
-
-    # Displayname from LTI 2.x
-    if ( fixed.get('custom_person_name_full') ) :
-        ret['user_displayname'] = fixed['custom_person_name_full']
-    elif ( fixed.get('custom_person_name_given') and fixed.get('custom_person_name_family') ) :
-        ret['user_displayname'] = fixed['custom_person_name_given']+' '+fixed['custom_person_name_family']
-    elif ( fixed.get('custom_person_name_given') ) :
-        ret['user_displayname'] = fixed['custom_person_name_given']
-    elif ( fixed.get('custom_person_name_family') ) :
-        ret['user_displayname'] = fixed['custom_person_name_family']
-
-    # Displayname from LTI 1.x
-    elif ( fixed.get('lis_person_name_full') ) :
-        ret['user_displayname'] = fixed['lis_person_name_full']
-    elif ( fixed.get('lis_person_name_given') and fixed.get('lis_person_name_family') ) :
-        ret['user_displayname'] = fixed['lis_person_name_given']+' '+fixed['lis_person_name_family']
-    elif ( fixed.get('lis_person_name_given') ) :
-        ret['user_displayname'] = fixed['lis_person_name_given']
-    elif ( fixed.get('lis_person_name_family') ) :
-        ret['user_displayname'] = fixed['lis_person_name_family']
-
-    # Trim out repeated spaces and/or weird whitespace from the user_displayname
-    if ( ret.get('user_displayname') ) :
-        ret['user_displayname'] = re.sub( '\s+', ' ', ret.get('user_displayname') ).strip()
-
-    # Get the role
-    ret['role'] = 0
-    roles = ''
-    if ( fixed.get('custom_membership_role') ) : # From LTI 2.x
-        roles = fixed['custom_membership_role']
-    elif ( fixed.get('roles') ) : # From LTI 1.x
-        roles = fixed['roles']
-
-    if ( len(roles) > 0 ) :
-        roles = roles.lower()
-        if ( roles.find('instructor') >=0 ) : ret['role'] = 1000
-        if ( roles.find('administrator') >=0 ) : ret['role'] = 5000
-
-    return ret
-
 
 def load_all(post_data) :
+    '''Do a series of LEFT JOINs across all the tables to extract whatever
+    data we have for the incoming POST request.'''
     global TSUGI_DB_TO_ROW_FIELDS
 
     sql = 'SELECT nonce,\n        '
@@ -522,6 +270,9 @@ def load_all(post_data) :
     return result
 
 def adjust_sql(sql) :
+    '''Let us use the PDO style substitution variables as well
+    as solve the table prefix.'''
+
     global TSUGI_PREFIX
     sql = re.sub(r':([a-z0-9_]+)',r'%(\1)s',sql)
     return sql.replace('{$p}', TSUGI_PREFIX)
@@ -531,6 +282,10 @@ def lti_sha256(value) :
     return hashlib.sha256(value).hexdigest()
 
 def do_insert(core_object, row, post, actions) :
+    '''Look through the post data and check if there is new data
+    not yet in the database, and if there is new data insert it
+    and update the metarow object.'''
+
     global TSUGI_DB_TO_ROW_FIELDS
     table_name = 'lti_'+core_object
     id_column = core_object+'_id'
@@ -612,6 +367,10 @@ def do_insert(core_object, row, post, actions) :
         connection.commit()
 
 def do_update(core_object, row, post, actions) :
+    '''Look at the post data, and if there is a mismatch between
+    row (the data from the database) and the post data, update the
+    database and the row data.'''
+
     global TSUGI_DB_TO_ROW_FIELDS
     table_name = 'lti_'+core_object
     id_column = core_object+'_id'
@@ -660,6 +419,11 @@ def do_update(core_object, row, post, actions) :
 # https://github.com/tsugiproject/tsugi-php/blob/master/src/Core/LTIX.php#L753
 # for the PHP version of adjustData() :)
 def adjust_data(row, post) :
+    '''Make sure that any data from the post is inserted / updated
+    in the database and also copied to the "meta-row".  If new records are
+    inserted, their PK's are placed in row as well.
+    '''
+
     global TSUGI_DB_TO_ROW_FIELDS
 
     connection = get_connection()
@@ -675,3 +439,128 @@ def adjust_data(row, post) :
 
     return actions
 
+'''
+TSUGI_DB_TO_ROW_FIELDS is the data structure that drives Tsugi's core operations
+
+(1) extract_post - parsing post data to internal values
+(2) load_all - retrieving data from the core tables
+(3) adjust_data - make sure that post data is inserted / updated into DB
+
+Each row works as follows:
+- the first row is the name of the table (sans prefix)
+- the second row is the primary key (if any) followed by the foreign keys (if any)
+- The rest of the rows are
+  [name in db, name in lti object (if different), name(s) from the post data]
+
+Database columns that end in _key are the "logical key" for the row, but these are
+run through sha256 and stored in the _sha256 columns which is marked in the
+DB as the actual logical key for the row.  This approach is taken to allow
+the _key values be text and unindexed and apply the index to the _sha256
+column instead.
+
+Also, there is no need to add 'custom_' to the post data names, this is
+automatically handled in extract_post()
+
+If you look at the other languages, there is a lot of cut/pasted/tweaked straight
+line code with subtle changes in each version.   This is a table driven approach
+that is more complex but less likely to have cut/paste errors.  Also I use lists
+to maintain order and to make this easier to port to new languages.
+'''
+
+TSUGI_DB_TO_ROW_FIELDS = [
+        ['lti_key', # No sha256 because we don't insert key rows
+            ['key_id'],
+            ['key_key','key_key','oauth_consumer_key'],
+            'secret' ,
+            'new_secret',
+            ['settings_url', 'key_settings_url'],
+        ],
+        ['lti_context',
+            ['context_id', 'key_id'],
+            ['context_key', 'context_key', ['context_id', 'courseoffering_sourcedid']],
+            'context_sha256',
+            ['title', 'context_title', 'context_title'],
+            ['settings_url', 'context_settings_url'],
+            'ext_memberships_id',   # LTI 1.x Extension
+            'ext_memberships_url',  # LTI 1.x Extension
+            'lineitems_url',        # LTI 2.x Custom
+            'memberships_url'       # LTI 2.x Custom
+        ],
+        ['lti_link',
+            ['link_id', 'context_id'],
+            ['link_key','link_key', 'resource_link_id'],
+            'link_sha256',
+            ['path', 'link_path'],
+            ['title', 'link_title', 'resource_link_title'],
+            ['settings', 'link_settings'],
+            ['settings_url', 'link_settings_url']
+        ],
+        ['lti_user',
+            ['user_id', 'key_id'],
+            ['user_key', 'user_key', ['user_id', 'person_sourcedid']],
+            'user_sha256',
+            ['subscribe', 'user_subscribe'],
+            ['displayname', 'user_displayname', ['lis_person_name_full', 'person_name_full'] ],
+            ['email', 'user_email', ['lis_person_contact_email_primary', 'person_email_primary'] ],
+            ['image', 'user_image'],
+        ],
+        ['lti_membership',
+            ['membership_id', 'user_id', 'context_id'],
+            'role',
+            'role_override'   # Make sure to think this one through
+        ],
+        ['lti_result',
+            ['result_id', 'link_id', 'user_id', 'service_id'],
+            'grade',
+            'result_url',
+            ['sourcedid', 'sourcedid', 'lis_result_sourcedid'],
+        ],
+        ['profile',
+            ['profile_id', 'key_id'],
+            ['displayname', 'profile_displayname'],
+            ['email', 'profile_email'],
+            ['subscribe', 'profile_subscribe']
+        ],
+        ['lti_service',
+            ['service_id' , 'key_id'],
+            'service_sha256',
+            ['service_key', 'service_key', 'lis_outcome_service_url']
+        ]
+    ]
+
+def patch_table() :
+    """Patch the table of core variables
+
+    Go through the table and insure that all of the row fields are three
+    element lists for [db field, row object field, post field]
+
+    The format of the file is:
+        [table name,
+        [PK, FK, FK],
+        [name in db, name in lti object (if different), name(s) from the post data],
+        ...
+
+    We ignore rows 0, and 1, and then for the rest of the rows, if there
+    is one field, it is duplicated to fields 1 and 2.  If there are two
+    fields, the second is duplicated ot the third.
+    """
+    global TSUGI_DB_TO_ROW_FIELDS
+    for tc in range(len(TSUGI_DB_TO_ROW_FIELDS)) :
+        table = TSUGI_DB_TO_ROW_FIELDS[tc]
+        for fc in range(len(table)) :
+            if fc == 0 : continue;  # skip table name
+            if fc == 1 : continue;  # skip PK/FK row
+            if type(table[fc]) == type([]) and len(table[fc]) == 3 : continue
+
+            # When there are two fields, duplicate the second as last
+            if type(table[fc]) == type([]) and len(table[fc]) == 2 :
+                TSUGI_DB_TO_ROW_FIELDS[tc][fc].append(table[fc][1])
+                continue
+
+            # When there is one field, use it as second and third
+            field = table[fc]
+            TSUGI_DB_TO_ROW_FIELDS[tc][fc] = [field,field,field]
+
+
+# Actually patch the table.
+patch_table()
