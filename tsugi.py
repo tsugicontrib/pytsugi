@@ -41,7 +41,7 @@ def web2py(request, response, session):
 
     print "POST Vars"
     print request.post_vars
-    launch = TsugiLaunch()
+    launch = TsugiLaunch('TBD')
 
     my_post = extract_post(request.post_vars)
     print "Extracted POST", my_post
@@ -71,6 +71,7 @@ def web2py(request, response, session):
         close_connection()
     print "Adjusted", actions
 
+    launch.load(ltirow)
     launch.valid = True
     close_connection()
     return launch
@@ -395,10 +396,9 @@ def do_update(core_object, ltirow, post, actions) :
 
     connection = get_connection()
 
-    # Add data
+    # Update mismatched data
     for field in table[2:] :
         if '_sha256' in field[0] : continue   # Don't update logical key
-        # print "Check",field[1],ltirow[field[1]],post.get(field[1])
         if post.get(field[1]) is None : continue
         if ltirow[field[1]] == post.get(field[1]) : continue
         sql = adjust_sql('UPDATE {$p}'+table_name+ ' SET '+field[0]+'=:value WHERE '+id_column+' = :id')
@@ -430,6 +430,7 @@ def adjust_data(ltirow, post) :
     connection = get_connection()
     actions = list()
 
+    # Note - Never do this for key - dangerous!
     core_lti = ['context', 'user', 'link', 'membership', 'service', 'result']
 
     for core in core_lti:
@@ -481,6 +482,7 @@ TSUGI_DB_TO_ROW_FIELDS = [
             ['context_key', 'context_key', ['context_id', 'courseoffering_sourcedid']],
             'context_sha256',
             ['title', 'context_title', 'context_title'],
+            ['settings', 'context_settings', None],  # Don't take from Post
             ['settings_url', 'context_settings_url'],
             'ext_memberships_id',   # LTI 1.x Extension
             'ext_memberships_url',  # LTI 1.x Extension
@@ -493,7 +495,7 @@ TSUGI_DB_TO_ROW_FIELDS = [
             'link_sha256',
             ['path', 'link_path'],
             ['title', 'link_title', 'resource_link_title'],
-            ['settings', 'link_settings'],
+            ['settings', 'link_settings', None],  # Don't take from Post
             ['settings_url', 'link_settings_url']
         ],
         ['lti_user',
