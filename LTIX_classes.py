@@ -26,6 +26,7 @@ class TsugiLaunch():
     detail = None
     redirecturl = None
     ltirow = None
+    _adapter = None
     TSUGI_CONNECTION = None
 
     def __init__(self, CFG) :
@@ -44,6 +45,13 @@ class TsugiLaunch():
 
     def get_connection(self) :
         if self.TSUGI_CONNECTION is not None : return self.TSUGI_CONNECTION
+
+        if self._adapter is not None : 
+            print "INTERNAL ADAPTER"
+            print self._adapter
+            self.TSUGI_CONNECION = self._adapter.connector()
+            return self.TSUGI_CONNECTION
+
 
         self.TSUGI_CONNECTION = pymysql.connect(host='localhost',
                              user='ltiuser',

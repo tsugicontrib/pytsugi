@@ -7,12 +7,13 @@ from LTIX_classes import *
 # Hey Leah Culver, 2007 called and thanked you for your OAuth code
 import oauth as oauth
 
-def web2py(request, response, session):
+def web2py(request, response, db, session):
 
     print "POST Vars"
     print request.post_vars
 
     launch = TsugiLaunch('TBD')
+    # launch._adapter = db._adapter
 
     if 'lti_message_type' in request.post_vars and 'oauth_nonce' in request.post_vars :
         pass
