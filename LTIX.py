@@ -319,7 +319,7 @@ def do_insert(launch, core_object, ltirow, post, actions) :
     print sql
     print parms
 
-    ltirow[id_column] = launch.sql_insert(sql, parms)
+    ltirow[id_column] = launch.sql_insert(sql, parms, "{$p}"+table_name)
 
     # [0] is table_name, [1] is primary key
     for field in table[2:] :

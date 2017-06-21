@@ -67,7 +67,6 @@ class TsugiLaunch():
         result = None
         sql = self.adjust_sql(sql)
         if self._web2py_db is not None : 
-            print "WEB2PY", sql
             ret = self._web2py_db.executesql(sql, parms, as_dict = True)
             return ret[0]
 
@@ -85,7 +84,6 @@ class TsugiLaunch():
     def sql_update(self, sql, parms) :
         sql = self.adjust_sql(sql)
         if self._web2py_db is not None : 
-            print "WEB2PY", sql
             self._web2py_db.executesql(sql, parms)
             return
 
@@ -98,9 +96,15 @@ class TsugiLaunch():
         finally:
             self.close_connection()
 
-    def sql_insert(self, sql, parms) :
-        connection = self.get_connection()
+    # https://stackoverflow.com/questions/44678464/how-to-get-a-returned-primary-key-after-using-executesql-to-insert-a-record
+    def sql_insert(self, sql, parms, table) :
         sql = self.adjust_sql(sql)
+        table = self.adjust_sql(table)
+        if self._web2py_db is not None : 
+            self._web2py_db._adapter.execute(sql, parms)
+            return self._web2py_db._adapter.lastrowid(table)
+
+        connection = self.get_connection()
         retval = None
         try:
             with connection.cursor() as cursor:
