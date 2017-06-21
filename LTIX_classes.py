@@ -1,12 +1,13 @@
 import re
 import pymysql
 import hashlib
+from outcome_request import *
 
 TSUGI_PREFIX = ''
 
 # TODO: Need a configuration mechanism
 
-# TODO: This needs to be pulled out somewhere
+# TODO: Connections stuff needs to be pulled out somewhere
 # This also needs to let connections go after
 # a while - it is far too simple
 
@@ -127,5 +128,18 @@ class TsugiResult() :
         print 'setGrade', grade, comment
         print 'Source', self.sourcedid, self.service.url
         print 'secret,key',self.launch.ltirow.get('secret'),self.launch.ltirow.get('key_key')
+
+        # outcome = ims_lti_py.OutcomeRequest( { 'score': grade,
+        # outcome = dce_lti_py.OutcomeRequest( { 'score': grade,
+        outcome = OutcomeRequest( { 'score': grade,
+            'lis_outcome_service_url': self.service.url,
+            'lis_result_sourcedid': self.sourcedid,
+            'consumer_key': self.launch.ltirow.get('key_key'),
+            'consumer_secret': self.launch.ltirow.get('secret')
+        })
+
+        # outcome.post_replace_result(grade, {'text': comment})
+        outcome.post_replace_result(grade)
+        print "Grade sent..."
 
 
