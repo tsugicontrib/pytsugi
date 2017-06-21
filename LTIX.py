@@ -2,7 +2,7 @@
 # import pymysql
 import urllib
 import trivialstore as trivialstore
-from tsugiclasses import *
+from LTIX_classes import *
 
 # Hey Leah Culver, 2007 called and thanked you for your OAuth code
 import oauth as oauth
