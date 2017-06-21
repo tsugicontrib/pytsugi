@@ -26,7 +26,7 @@ class TsugiLaunch():
     detail = None
     redirecturl = None
     ltirow = None
-    _adapter = None
+    _web2py_db = None
     TSUGI_CONNECTION = None
 
     def __init__(self, CFG) :
@@ -46,13 +46,6 @@ class TsugiLaunch():
     def get_connection(self) :
         if self.TSUGI_CONNECTION is not None : return self.TSUGI_CONNECTION
 
-        if self._adapter is not None : 
-            print "INTERNAL ADAPTER"
-            print self._adapter
-            self.TSUGI_CONNECION = self._adapter.connector()
-            return self.TSUGI_CONNECTION
-
-
         self.TSUGI_CONNECTION = pymysql.connect(host='localhost',
                              user='ltiuser',
                              port=8889,
@@ -70,10 +63,16 @@ class TsugiLaunch():
         self.TSUGI_CONNECTION.close()
         self.TSUGI_CONNECTION = None
 
-    def sql_execute(self, sql, parms) :
+    def sql_select_row(self, sql, parms) :
         result = None
+        sql = self.adjust_sql(sql)
+        if self._web2py_db is not None : 
+            print "WEB2PY", sql
+            ret = self._web2py_db.executesql(sql, parms, as_dict = True)
+            return ret[0]
+
+        connection = self.get_connection()
         try:
-            connection = self.get_connection()
             with connection.cursor() as cursor:
                 # Read a single record
                 cursor.execute(sql, parms)
@@ -84,6 +83,12 @@ class TsugiLaunch():
         return result
 
     def sql_update(self, sql, parms) :
+        sql = self.adjust_sql(sql)
+        if self._web2py_db is not None : 
+            print "WEB2PY", sql
+            self._web2py_db.executesql(sql, parms)
+            return
+
         connection = self.get_connection()
         try:
             with connection.cursor() as cursor:
@@ -95,6 +100,7 @@ class TsugiLaunch():
 
     def sql_insert(self, sql, parms) :
         connection = self.get_connection()
+        sql = self.adjust_sql(sql)
         retval = None
         try:
             with connection.cursor() as cursor:

@@ -13,7 +13,7 @@ def web2py(request, response, db, session):
     print request.post_vars
 
     launch = TsugiLaunch('TBD')
-    # launch._adapter = db._adapter
+    launch._web2py_db = db
 
     if 'lti_message_type' in request.post_vars and 'oauth_nonce' in request.post_vars :
         pass
@@ -247,7 +247,7 @@ def load_all(launch, post_data) :
 
     # print parms
 
-    result = launch.sql_execute(sql, parms)
+    result = launch.sql_select_row(sql, parms)
     return result
 
 def do_insert(launch, core_object, ltirow, post, actions) :
@@ -314,8 +314,7 @@ def do_insert(launch, core_object, ltirow, post, actions) :
         else :
             parms[field[0]] = post.get(field[1])
 
-    sql = launch.adjust_sql("INSERT INTO {$p}"+table_name+ "\n" +
-        columns + " )\n" + "VALUES\n" + subs + " )\n")
+    sql = "INSERT INTO {$p}"+table_name+ "\n" + columns + " )\n" + "VALUES\n" + subs + " )\n"
 
     print sql
     print parms
@@ -363,7 +362,7 @@ def do_update(launch, core_object, ltirow, post, actions) :
         if '_sha256' in field[0] : continue   # Don't update logical key
         if post.get(field[1]) is None : continue
         if ltirow[field[1]] == post.get(field[1]) : continue
-        sql = launch.adjust_sql('UPDATE {$p}'+table_name+ ' SET '+field[0]+'=:value WHERE '+id_column+' = :id')
+        sql = 'UPDATE {$p}'+table_name+ ' SET '+field[0]+'=:value WHERE '+id_column+' = :id'
 
         parms = {'value': post.get(field[1]), 'id': ltirow.get(id_column)}
 
