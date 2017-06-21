@@ -247,12 +247,7 @@ def load_all(launch, post_data) :
 
     # print parms
 
-    connection = launch.get_connection()
-    with connection.cursor() as cursor:
-        # Read a single record
-        cursor.execute(sql, parms)
-        result = cursor.fetchone()
-
+    result = launch.sql_execute(sql, parms)
     return result
 
 def do_insert(launch, core_object, ltirow, post, actions) :
@@ -294,8 +289,6 @@ def do_insert(launch, core_object, ltirow, post, actions) :
             print "Unable to find logical key for",core_object,key_column
         return
 
-    connection = launch.get_connection()
-
     columns = '( created_at, updated_at'
     subs = '( NOW(), NOW()'
     parms = {}
@@ -327,18 +320,15 @@ def do_insert(launch, core_object, ltirow, post, actions) :
     print sql
     print parms
 
-    with connection.cursor() as cursor:
-        # Read a single record
-        cursor.execute(sql, parms)
-        ltirow[id_column] = cursor.lastrowid
-        # [0] is table_name, [1] is primary key
-        for field in table[2:] :
-            if field[0] == sha_column :
-                ltirow[field[1]] = launch.lti_sha256(post[key_column])
-            else :
-                ltirow[field[1]] = post.get(field[1])
+    ltirow[id_column] = launch.sql_insert(sql, parms)
+
+    # [0] is table_name, [1] is primary key
+    for field in table[2:] :
+        if field[0] == sha_column :
+            ltirow[field[1]] = launch.lti_sha256(post[key_column])
+        else :
+            ltirow[field[1]] = post.get(field[1])
         actions.append("=== Inserted "+core_object+" id="+str(ltirow[id_column]))
-        connection.commit()
 
 def do_update(launch, core_object, ltirow, post, actions) :
     '''Look at the post data, and if there is a mismatch between
@@ -380,13 +370,10 @@ def do_update(launch, core_object, ltirow, post, actions) :
         # print sql
         # print parms
 
-        with connection.cursor() as cursor:
-            # Read a single record
-            cursor.execute(sql, parms)
-            ltirow[field[1]] = post.get(field[1])
-            actions.append("=== Updated "+core_object+" "+field[1]+"="+str(post.get(field[1]))+" id="+str(ltirow[id_column]))
-            connection.commit()
+        launch.sql_update(sql, parms)
 
+        ltirow[field[1]] = post.get(field[1])
+        actions.append("=== Updated "+core_object+" "+field[1]+"="+str(post.get(field[1]))+" id="+str(ltirow[id_column]))
 
 # The payoff for table driven code - take a look at
 # https://github.com/tsugiproject/tsugi-php/blob/master/src/Core/LTIX.php#L753

@@ -70,6 +70,42 @@ class TsugiLaunch():
         self.TSUGI_CONNECTION.close()
         self.TSUGI_CONNECTION = None
 
+    def sql_execute(self, sql, parms) :
+        result = None
+        try:
+            connection = self.get_connection()
+            with connection.cursor() as cursor:
+                # Read a single record
+                cursor.execute(sql, parms)
+                result = cursor.fetchone()
+        finally:
+            self.close_connection()
+
+        return result
+
+    def sql_update(self, sql, parms) :
+        connection = self.get_connection()
+        try:
+            with connection.cursor() as cursor:
+                # Read a single record
+                cursor.execute(sql, parms)
+                connection.commit()
+        finally:
+            self.close_connection()
+
+    def sql_insert(self, sql, parms) :
+        connection = self.get_connection()
+        retval = None
+        try:
+            with connection.cursor() as cursor:
+                # Read a single record
+                cursor.execute(sql, parms)
+                retval = cursor.lastrowid
+                connection.commit()
+        finally:
+            self.close_connection()
+        return retval
+
     def adjust_sql(self, sql) :
         '''Let us use the PDO style substitution variables as well
         as solve the table prefix.'''
