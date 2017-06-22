@@ -68,7 +68,9 @@ class TsugiLaunch():
         sql = self.adjust_sql(sql)
         if self._web2py_db is not None : 
             rows = self._web2py_db.executesql(sql, parms, as_dict = True)
-            return len(rows) > 0 : rows[0] ? None
+            if len(rows) > 0 :
+                return rows[0]
+            return None
 
         connection = self.get_connection()
         try:
