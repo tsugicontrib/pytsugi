@@ -1,5 +1,15 @@
 *.pyc
 *.swp
 *.bak
-errors/*
+
+*.pyc
+*.pyo
+__pycache__
+.coverage
+/dist
+/pytsugi.egg-info
+/.tox
+/build
+/.idea
+docs/build
 

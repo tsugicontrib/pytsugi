@@ -19,3 +19,7 @@ I will figure out later why all that is true and maybe
 debug and send a PR to the Harvard code when I have
 time.
 
+How to do packaging
+
+https://ewencp.org/blog/a-brief-introduction-to-packaging-python/
+
