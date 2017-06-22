@@ -13,5 +13,21 @@ Soon this will be in pypi but for now, do this:
 You may need `sudo` in front of the python.  This sets up a soft link
 so you can go a `git pull` in pytsugi and not have to rerun `setup.py`
 
-Thanks for this page: https://ewencp.org/blog/a-brief-introduction-to-packaging-python/
+Releasing
+---------
+
+Undo the developer mode (sudo as needed):
+
+    python setup.py develop --uninstall
+
+    python setup.py sdist
+
+    ... Still researching this.
+
+
+References
+----------
+
+* https://ewencp.org/blog/a-brief-introduction-to-packaging-python/
+
 
