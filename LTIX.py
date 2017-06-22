@@ -11,6 +11,8 @@ def web2py(request, response, db, session):
 
     print "POST Vars"
     print request.post_vars
+    # print "ENV Vars"
+    # print request.env
 
     launch = TsugiLaunch('TBD')
     launch._web2py_db = db
@@ -34,14 +36,15 @@ def web2py(request, response, db, session):
     print "Loaded Row", ltirow
     key = ltirow['key_key']
     secret = ltirow['secret']
+    newsecret = ltirow['new_secret']
 
     url = '%s://%s%s' % (request.env.wsgi_url_scheme, request.env.http_host,
                request.env.request_uri)
 
-    print "Key, Secret, URL", key,secret, url
+    print "Key, Secret, New Secret, URL", key, secret, newsecret, url
 
     # Check secret...
-    verify_signature(request.post_vars, url, key, secret, launch)
+    verify_signature(request.post_vars, url, key, secret, newsecret, launch)
     if launch.message : 
         response.headers['X-Tsugi-Error-Detail'] = launch.detail
         return launch
@@ -60,23 +63,51 @@ def web2py(request, response, db, session):
     launch.close_connection()
     return launch
 
-def verify_signature(post, url, key, secret, launch) :
-    oauth_request = oauth.OAuthRequest.from_request('POST', url, None, post)
-    ts = trivialstore.TrivialDataStore()
-    trivialstore.secret = secret
-    server = oauth.OAuthServer(ts)
-    server.add_signature_method(oauth.OAuthSignatureMethod_HMAC_SHA1())
-    consumer = oauth.OAuthConsumer(key,secret)
-    try:
-        verify = server._check_signature(oauth_request, consumer, None)
-    except oauth.OAuthError as oae:
-        print "OAuth Failed"
-        print oae.mymessage
-        retval = oae.mymessage
-        launch.detail = retval
-        launch.message = retval
-        pos = retval.find(' Expected signature base string: ')
-        if pos > 0 : launch.message = retval[:pos]
+def verify_signature(post, url, key, secret, newsecret, launch) :
+
+    if secret is None or url is None:
+        # TODO Get mad and redirect
+        launch.message = 'Must have a secret and url to verify'
+        return
+
+    # We want to check the old secret and the new secret and if
+    # we have an http:// url, also try the https:// validation
+    # In case we are behind ngrok or cloudflare and have the correct
+    # Host but not the correct scheme
+    fail = None
+    urls = list()
+    urls.append(url)
+    if url.startswith('http://') :
+        urls.append(url.replace('http://', 'https://', 1))
+
+    for the_secret in [secret, newsecret] :
+        if the_secret is None : continue
+        for the_url in urls:
+            print "XX Try",the_url,secret
+            oauth_request = oauth.OAuthRequest.from_request('POST', the_url, None, post)
+            ts = trivialstore.TrivialDataStore()
+            trivialstore.secret = secret
+            server = oauth.OAuthServer(ts)
+            server.add_signature_method(oauth.OAuthSignatureMethod_HMAC_SHA1())
+            consumer = oauth.OAuthConsumer(key,the_secret)
+
+            try:
+                verify = server._check_signature(oauth_request, consumer, None)
+                print "OAuth Success"
+                return True
+            except oauth.OAuthError as oae:
+                print "OAuth Failed"
+                print oae.mymessage
+                if fail is None:
+                    fail = oae.mymessage
+
+    if fail is None:
+        launch.message = 'Unknown error during OAuth validation'
+    else:
+        launch.detail = fail
+        launch.message = fail
+        pos = fail.find(' Expected signature base string: ')
+        if pos > 0 : launch.message = fail[:pos]
 
         url = post.get('launch_presentation_return_url')
         if url is not None:
@@ -431,8 +462,8 @@ TSUGI_DB_TO_ROW_FIELDS = [
         ['lti_key', # No sha256 because we don't insert key rows
             ['key_id'],
             ['key_key','key_key','oauth_consumer_key'],
-            'secret' ,
-            'new_secret',
+            ['secret', 'secret', None],
+            ['new_secret', 'new_secret', None],
             ['settings_url', 'key_settings_url'],
         ],
         ['lti_context',
