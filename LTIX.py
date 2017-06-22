@@ -83,7 +83,6 @@ def verify_signature(post, url, key, secret, newsecret, launch) :
     for the_secret in [secret, newsecret] :
         if the_secret is None : continue
         for the_url in urls:
-            print "XX Try",the_url,secret
             oauth_request = oauth.OAuthRequest.from_request('POST', the_url, None, post)
             ts = trivialstore.TrivialDataStore()
             trivialstore.secret = secret
@@ -97,27 +96,27 @@ def verify_signature(post, url, key, secret, newsecret, launch) :
                 return True
             except oauth.OAuthError as oae:
                 print "OAuth Failed"
-                print oae.mymessage
+                # print oae.mymessage
                 if fail is None:
                     fail = oae.mymessage
 
     if fail is None:
-        launch.message = 'Unknown error during OAuth validation'
-    else:
-        launch.detail = fail
-        launch.message = fail
-        pos = fail.find(' Expected signature base string: ')
-        if pos > 0 : launch.message = fail[:pos]
+        fail = 'Unknown error during OAuth validation'
 
-        url = post.get('launch_presentation_return_url')
-        if url is not None:
-            parms = { 'lti_errorlog' : launch.detail,
-                'lti_errormsg' : launch.message }
-            if '?' in url : url += '&'
-            else : url += '?'
-            url += urllib.urlencode(parms)
-            print url
-            launch.redirecturl = url
+    launch.detail = fail
+    launch.message = fail
+    pos = fail.find(' Expected signature base string: ')
+    if pos > 0 : launch.message = fail[:pos]
+
+    url = post.get('launch_presentation_return_url')
+    if url is not None:
+        parms = { 'lti_errorlog' : launch.detail,
+            'lti_errormsg' : launch.message }
+        if '?' in url : url += '&'
+        else : url += '?'
+        url += urllib.urlencode(parms)
+        print url
+        launch.redirecturl = url
 
 def extract_post(post) :
     '''Map the POST data into our internal ltirow format where all the
