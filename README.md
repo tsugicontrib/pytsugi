@@ -42,13 +42,18 @@ a new version.
 Also you should tag a release the git repo for the version in `setup.py`
 in case you want to go back.
 
-Undo the developer mode if you have done it (sudo as needed):
+You have to do this once to reserve the name in PyPi - which is already done.
+
+    python setup.py register
+
+Undo developer mode if you were developing (sudo as needed):
 
     python setup.py develop --uninstall
     rm -r pytsugi.egg-info/
 
+Then package and upload
+
     python setup.py sdist
-    python setup.py register
     python setup.py sdist upload  (Requires pypi account)
 
 Check on pypi to see if it made it.
@@ -58,6 +63,10 @@ Check on pypi to see if it made it.
 After you do the release, increment the version number in the setup.py file since
 you can only do one release per version.  That is the next "working version" until
 you send it up to `pypi`.
+
+After you release you might want to switch back to developer mode:
+
+    python setup.py develop
 
 References
 ----------
