@@ -2,7 +2,9 @@
 
 This is an emergent implementation of the Python Tsugi library.
 
-See also the pytsugi-web2py repository for a sample of this use
+See also the pytsugi-web2py repository for a sample of using this library:
+
+https://github.com/tsugiproject/pytsugi-web2py
 
 If you want to use this:
 
