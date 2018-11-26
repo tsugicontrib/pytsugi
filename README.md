@@ -1,5 +1,12 @@
 # pytsugi
 
+
+**Deprecated:** As of November 2018, this effort is deprecated.
+We are in the process of developing a new technology / apprach
+that will allow Tsugi tools to be built in a wide range of environments
+connected to the core of Tsugi using web services wather than through
+the database as is done in this approach.
+
 This is an emergent implementation of the Python Tsugi library.
 
 See also the pytsugi-web2py repository for a sample of using this library:
